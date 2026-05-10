@@ -26,7 +26,7 @@ class ProviderDispatcher: KoinComponent {
         url.getHost().apply {
            return when {
                 contains("tvphim") -> TvphimProvider(javaScriptExecutor)
-                equals("sieutamphim.com") -> SieutamphimProvider()
+                contains("sieutamphim") -> SieutamphimProvider()
                 equals("phimbet.biz") -> PhimbetProvider()
                 contains("motchill") || equals("subnhanh.win") -> MotchillProvider()
                 equals("animet3.biz") -> Animet3Provider()

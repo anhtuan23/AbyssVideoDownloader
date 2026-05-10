@@ -57,7 +57,13 @@ fun String.parseVideoIdOrUrlWithResolution(): List<Pair<String, String>> {
  * @throws IllegalArgumentException if the URL is malformed or cannot be accessed.
  * @throws Exception if an I/O error occurs while attempting to retrieve the document.
  */
-fun String.fetchDocument(): Document = Jsoup.connect(this).get()
+fun String.fetchDocument(): Document = Jsoup.connect(this)
+    .userAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+    .header("Accept-Language", "en-US,en;q=0.9")
+    .referrer(this.extractReferer() ?: "https://www.google.com/")
+    .get()
+
+fun String.fetchDocumentFromHtml(): Document = Jsoup.parse(this)
 
 /**
  * Parses the string as an HTML document using Jsoup.
@@ -151,4 +157,3 @@ fun isValidPath(filePath: String?): Boolean {
         false
     }
 }
-

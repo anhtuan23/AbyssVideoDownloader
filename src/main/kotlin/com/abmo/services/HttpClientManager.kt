@@ -19,7 +19,13 @@ class HttpClientManager {
             api.newSSLContext(null, null)
             val factory = OkHttpClientFactory.create(api)
             val client = factory.newHttpClient()
-            val request = Request.Builder().url(url).build()
+            val requestBuilder = Request.Builder().url(url)
+            headers?.forEach { (key, value) ->
+                if (!key.isNullOrBlank() && value != null) {
+                    requestBuilder.header(key, value)
+                }
+            }
+            val request = requestBuilder.build()
             val response = client.newCall(request).execute()
             HttpResponse(body = response.body?.string(), statusCode = response.code)
         }
