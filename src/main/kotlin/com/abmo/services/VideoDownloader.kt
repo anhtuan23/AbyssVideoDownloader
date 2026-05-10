@@ -44,6 +44,12 @@ class VideoDownloader: KoinComponent {
      */
     suspend fun downloadSegmentsInParallel(config: Config, videoMetadata: Mp4?) {
         val simpleVideo = videoMetadata?.toSimpleVideo(config.resolution)
+        val segmentBaseUrl = simpleVideo?.url
+            ?: throw IllegalStateException("No valid segment base URL found for resolution ${config.resolution}.")
+        Logger.debug(
+            "Resolved source metadata: baseUrl=$segmentBaseUrl, path=${simpleVideo.path}, " +
+                "resId=${simpleVideo.resId}, size=${simpleVideo.size}, partSize=${simpleVideo.partSize}, md5=${simpleVideo.md5_id}"
+        )
         val segmentTokens = generateSegmentTokens(simpleVideo)
 
         val tempDir = initializeDownloadTempDir(config, simpleVideo, segmentTokens.size)
@@ -56,7 +62,7 @@ class VideoDownloader: KoinComponent {
         // used to limit the number of concurrent coroutines executing the download tasks.
         val semaphore = Semaphore(config.connections)
         val totalSegments = segmentsToDownload.size
-        val mediaSize = segmentsToDownload.size * FRAGMENT_SIZE_IN_BYTES
+        val mediaSize = simpleVideo.size ?: (segmentsToDownload.size * (simpleVideo.partSize ?: FRAGMENT_SIZE_IN_BYTES))
         val downloadedSegments = AtomicInteger(0)
         val totalBytesDownloaded = AtomicLong(0L)
 
@@ -64,7 +70,7 @@ class VideoDownloader: KoinComponent {
 
         coroutineScope {
             val downloadJobs = segmentsToDownload.entries.mapIndexed { _, segmentToken ->
-                val segmentUrl = "${simpleVideo?.url}/sora/${simpleVideo?.size}/${segmentToken.value}"
+                val segmentUrl = "$segmentBaseUrl/sora/${simpleVideo.size}/${segmentToken.value}"
                 async(Dispatchers.IO) {
                     val index = segmentToken.key
                     semaphore.withPermit {
@@ -194,11 +200,23 @@ class VideoDownloader: KoinComponent {
         if (tempFolder.exists() && tempFolder.isDirectory) {
             Logger.info("Resuming download from temporary folder: $tempFolderName. Continuing from previously downloaded segments.")
             println("\n")
+            val expectedSegmentSize = simpleVideo?.partSize ?: FRAGMENT_SIZE_IN_BYTES
             val existingSegments = tempFolder.listFiles { file ->
+                val segmentIndex = file.name.removePrefix("segment_").toIntOrNull()
+                val expectedSize = if (
+                    segmentIndex != null &&
+                    segmentIndex == totalSegments - 1 &&
+                    simpleVideo?.size != null
+                ) {
+                    simpleVideo.size - (expectedSegmentSize * segmentIndex)
+                } else {
+                    expectedSegmentSize
+                }
+
                 if (
                     file.isFile &&
                     file.name.matches(Regex("segment_\\d+")) &&
-                    file.length() < FRAGMENT_SIZE_IN_BYTES) {
+                    file.length() < expectedSize) {
                     file.delete()
                 }
                 file.isFile && file.name.matches(Regex("segment_\\d+"))
@@ -244,9 +262,12 @@ class VideoDownloader: KoinComponent {
         val fragmentList = mutableMapOf<Int, String>()
         val encryptionKey = cryptoHelper.getKey(simpleVideo?.size)
         if (simpleVideo?.size != null) {
-            val ranges = generateRanges(simpleVideo.size)
+            val fragmentSize = simpleVideo.partSize ?: FRAGMENT_SIZE_IN_BYTES
+            val ranges = generateRanges(simpleVideo.size, fragmentSize)
+            val tokenPathPrefix = simpleVideo.path?.takeIf { it.isNotBlank() }
+                ?: "/mp4/${simpleVideo.md5_id}/${simpleVideo.resId}/${simpleVideo.size}"
             ranges.forEachIndexed { index, _ ->
-                val path = "/mp4/${simpleVideo.md5_id}/${simpleVideo.resId}/${simpleVideo.size}/$FRAGMENT_SIZE_IN_BYTES/$index"
+                val path = "$tokenPathPrefix/$fragmentSize/$index"
                 val encryptedBody = cryptoHelper.encryptAESCTR(path, encryptionKey)
                 fragmentList[index] = doubleEncodeToBase64(encryptedBody)
             }
@@ -268,7 +289,6 @@ class VideoDownloader: KoinComponent {
 
 
     private suspend fun requestSegment(url: String, token: String, index: Int? = null): Flow<ByteArray> = flow {
-        Logger.debug("[$index] Starting request to $url with token token: $token")
         val response = Unirest.get(url)
             .header("Referer", "https://abysscdn.com/")
             .asBinary()
@@ -276,7 +296,11 @@ class VideoDownloader: KoinComponent {
         val rawBody = response.rawBody
         val responseCode = response.status
 
-        Logger.debug("[$index] Received response with status $responseCode\n", responseCode !in 200..299)
+        if (responseCode !in 200..299) {
+            Logger.debug("[$index] Segment request failed with status $responseCode for $url", true)
+            rawBody.close()
+            throw IllegalStateException("Segment $index request failed with status $responseCode.")
+        }
 
         val buffer = ByteArray(65536)
         var bytesRead: Int

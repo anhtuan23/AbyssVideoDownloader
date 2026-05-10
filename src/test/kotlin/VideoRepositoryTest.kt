@@ -1,3 +1,5 @@
+package com.abmo
+
 import com.abmo.di.koinModule
 import com.abmo.services.VideoDownloader
 import org.junit.jupiter.api.BeforeAll
