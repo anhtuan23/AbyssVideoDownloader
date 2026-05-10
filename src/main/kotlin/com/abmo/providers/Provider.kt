@@ -13,4 +13,9 @@ interface Provider {
      * @return The video ID as a String, or null if not found.
      */
     fun getVideoID(url: String): String?
+
+    fun getDownloadTargets(url: String): List<DownloadTarget> {
+        val videoId = getVideoID(url) ?: return emptyList()
+        return listOf(DownloadTarget(videoId))
+    }
 }

@@ -72,6 +72,34 @@ fun String.fetchDocumentFromHtml(): Document = Jsoup.parse(this)
  */
 fun String.toJsoupDocument(): Document = Jsoup.parse(this)
 
+fun sanitizeFileName(value: String): String {
+    return value
+        .replace(Regex("""[\\/:*?"<>|]"""), "_")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+        .trimEnd('.', ' ')
+}
+
+fun ensureDirectory(path: String?): File? {
+    if (path.isNullOrBlank()) return null
+
+    val directory = File(path).canonicalFile
+    if (directory.exists()) {
+        if (!directory.isDirectory) {
+            Logger.error("Output path is not a directory: ${directory.absolutePath}")
+            return null
+        }
+        return directory
+    }
+
+    if (!directory.mkdirs()) {
+        Logger.error("Failed to create output directory: ${directory.absolutePath}")
+        return null
+    }
+
+    return directory
+}
+
 /**
  * Finds and returns the value associated with the given key in a JSON string.
  *

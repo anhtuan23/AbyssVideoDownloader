@@ -21,66 +21,111 @@ class Application(private val args: Array<String>) : KoinComponent {
 
     suspend fun run() {
 
-        val outputFileName = cliArguments.getOutputFileName()
+        val outputPath = cliArguments.getOutputFileName()
         val headers = cliArguments.getHeaders()
         val numberOfConnections = cliArguments.getParallelConnections()
         val videoIdsOrUrls = cliArguments.getVideoIdsOrUrlsWithResolutions()
         Constants.VERBOSE = cliArguments.isVerboseEnabled()
-
-        if (outputFileName != null) {
-            if (!isValidPath(outputFileName)) {
-                exitProcess(0)
-            }
-        }
 
         videoIdsOrUrls.forEach { pairs ->
             val videoUrl = pairs.first
             val resolution = pairs.second
 
             val dispatcher = providerDispatcher.getProviderForUrl(videoUrl)
-            val videoID = dispatcher.getVideoID(videoUrl)
+            val downloadTargets = dispatcher.getDownloadTargets(videoUrl)
             val defaultHeader = if (videoUrl.isValidUrl()) {
                 mapOf("Referer" to videoUrl.extractReferer())
             } else { emptyMap() }
 
-            val url = "$ABYSS_BASE_URL/?v=$videoID"
-            val videoMetadata = videoDownloader.getVideoMetaData(url, headers ?: defaultHeader)
-            val videoSources = videoMetadata?.sources
-                ?.sortedBy { it?.label?.filter { char -> char.isDigit() }?.toIntOrNull() }
+            if (downloadTargets.isEmpty()) {
+                Logger.error("No downloadable videos found for input: $videoUrl")
+                return@forEach
+            }
 
-            if (videoSources == null) {
-                Logger.error("Video with ID $videoID not found")
-            } else {
+            val multipleTargets = downloadTargets.size > 1
+            val outputDirectory = when {
+                multipleTargets -> {
+                    if (outputPath != null && outputPath.endsWith(".mp4", ignoreCase = true)) {
+                        Logger.error("When downloading multiple episodes, -o must point to a directory, not an .mp4 file.")
+                        exitProcess(0)
+                    }
+                    val explicitDirectory = outputPath?.let(::ensureDirectory)
+                    if (outputPath != null && explicitDirectory == null) {
+                        exitProcess(0)
+                    }
+                    explicitDirectory ?: File(".").canonicalFile
+                }
+                outputPath != null && !outputPath.endsWith(".mp4", ignoreCase = true) -> {
+                    ensureDirectory(outputPath) ?: exitProcess(0)
+                }
+                else -> null
+            }
+
+            downloadTargets.forEachIndexed { index, target ->
+                val videoID = target.videoId
+                val url = "$ABYSS_BASE_URL/?v=$videoID"
+                val videoMetadata = videoDownloader.getVideoMetaData(url, headers ?: defaultHeader)
+                val videoSources = videoMetadata?.sources
+                    ?.sortedBy { it?.label?.filter { char -> char.isDigit() }?.toIntOrNull() }
+
+                if (videoSources == null) {
+                    Logger.error("Video with ID $videoID not found")
+                    return@forEachIndexed
+                }
+
                 val mappedResolution = when(resolution) {
                     "h" -> videoSources.maxBy { it?.size!! }?.label
                     "l" -> videoSources.minBy { it?.size!! }?.label
                     "m" -> videoSources.sortedBy { it?.size }.let { sorted ->
-                            sorted.getOrNull((sorted.size - 1) / 2) }?.label
+                        sorted.getOrNull((sorted.size - 1) / 2) }?.label
                     else -> videoSources.maxBy { it?.size!! }?.label
                 }
-                val defaultFileName = "${url.getParameter("v")}_${mappedResolution}_${System.currentTimeMillis()}.mp4"
-                val outputFile = outputFileName?.let { File(it) } ?: run {
-                    Logger.warn("No output file specified. The video will be saved to the current directory as '$defaultFileName'.\n")
-                    File(".", defaultFileName) // Default directory and name for saving video
-                }
-                if (mappedResolution != null) {
-                    val config = Config(url, mappedResolution, outputFile, headers, numberOfConnections)
-                    Logger.info("video with id $videoID and resolution $mappedResolution being processed...\n")
-                    try {
-                        videoDownloader.downloadSegmentsInParallel(config, videoMetadata)
-                    } catch (e: Exception) {
-                        Logger.error(e.message.toString())
+
+                if (mappedResolution == null) return@forEachIndexed
+
+                val outputFile = when {
+                    multipleTargets -> {
+                        val fileName = "${target.fileStem ?: videoID} [$mappedResolution].mp4"
+                        File(outputDirectory, fileName)
+                    }
+                    outputPath != null && outputPath.endsWith(".mp4", ignoreCase = true) -> {
+                        if (!isValidPath(outputPath)) {
+                            exitProcess(0)
+                        }
+                        File(outputPath)
+                    }
+                    else -> {
+                        val directory = outputDirectory ?: File(".")
+                        val defaultFileName = "${target.fileStem ?: videoID} [$mappedResolution].mp4"
+                        if (outputPath == null) {
+                            Logger.warn("No output file specified. The video will be saved to '${directory.path}/$defaultFileName'.\n")
+                        }
+                        File(directory, defaultFileName)
                     }
                 }
+
+                if (outputFile.exists()) {
+                    Logger.info("Skipping existing file: ${outputFile.absolutePath}")
+                    return@forEachIndexed
+                }
+
+                val config = Config(url, mappedResolution, outputFile, headers, numberOfConnections)
+                Logger.info("video with id $videoID and resolution $mappedResolution being processed...\n")
+                try {
+                    videoDownloader.downloadSegmentsInParallel(config, videoMetadata)
+                } catch (e: Exception) {
+                    Logger.error(e.message.toString())
+                }
+
+                if (multipleTargets && index < downloadTargets.lastIndex) {
+                    println("-------------------------------------------------------------------------------------------------")
+                }
             }
+
             if (videoIdsOrUrls.size > 1) {
-                println("-----------------------------------------$videoID--------------------------------------------------------")
+                println("-----------------------------------------${downloadTargets.last().videoId}--------------------------------------------------------")
             }
         }
-
-
-
-
     }
 
 }
