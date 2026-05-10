@@ -61,6 +61,25 @@ class SieutamphimProviderTest {
     }
 
     @Test
+    fun `prefer abyss episode group when page has multiple sources`() {
+        val provider = SieutamphimProvider()
+        val html = """
+            <div id="mytick">
+              <div class="episodeGroup" data-server="vc" data-episodes='[
+                {"https://vc.example/691640aaf612e3cff99a4efd","1"},
+                {"https://vc.example/6916410eba13d3e2d2821230","2"}
+              ]'></div>
+              <div class="episodeGroup" data-server="hx" data-episodes='[
+                {"B^^ZYYBEX^CDA_n^lNY","1"},
+                {"B^^ZYYBEX^CDAYBFAH[l","2"}
+              ]'></div>
+            </div>
+        """.trimIndent().toJsoupDocument()
+
+        assertEquals(listOf("4uD-2tFds", "s2hlkb1qF"), provider.extractEpisodeIds(html))
+    }
+
+    @Test
     fun `prefer source url when building simple video`() {
         val metadata = Mp4(
             domains = listOf("https://fallback.example.com"),

@@ -8,6 +8,11 @@ import java.nio.charset.Charset
 
 class SieutamphimProvider: Provider {
 
+    private data class EncryptedEpisodeGroup(
+        val server: String,
+        val episodes: List<String>,
+    )
+
     override fun getVideoID(url: String): String? {
         return getDownloadTargets(url).firstOrNull()?.videoId
     }
@@ -119,9 +124,22 @@ class SieutamphimProvider: Provider {
     }
 
     private fun extractEncryptedEpisodes(document: Document): List<String>? {
-        return document.selectFirst("div#mytick div.episodeGroup[data-episodes]")
-            ?.attr("data-episodes")
-            ?.let(::extractEpisodesFromDataAttribute)
+        val groups = document.select("div#mytick div.episodeGroup[data-episodes]")
+            .mapNotNull { element ->
+                val episodes = extractEpisodesFromDataAttribute(element.attr("data-episodes"))
+                    ?: return@mapNotNull null
+
+                EncryptedEpisodeGroup(
+                    server = element.attr("data-server").lowercase(),
+                    episodes = episodes,
+                )
+            }
+
+        return groups.firstOrNull { group ->
+            group.server == "hx" && group.hasAbyssEpisodes(document.html())
+        }?.episodes
+            ?: groups.firstOrNull { it.hasAbyssEpisodes(document.html()) }?.episodes
+            ?: groups.firstOrNull()?.episodes
     }
 
     private fun buildEpisodeFileStem(seriesTitle: String, index: Int, episodeName: String?): String {
@@ -170,6 +188,20 @@ class SieutamphimProvider: Provider {
 
     private fun xorEncryptDecrypt(data: ByteArray, key: Int): ByteArray {
         return data.map { it.toInt() xor key }.map { it.toByte() }.toByteArray()
+    }
+
+    private fun EncryptedEpisodeGroup.hasAbyssEpisodes(html: String): Boolean {
+        return episodes.any { encryptedUrl ->
+            val key = extractXorKey(html, encryptedUrl) ?: return@any false
+            decodeXor(encryptedUrl, key).isAbyssEpisodeUrl()
+        }
+    }
+
+    private fun String.isAbyssEpisodeUrl(): Boolean {
+        val normalized = lowercase()
+        return normalized.contains("short.ink/") ||
+            normalized.contains("abysscdn.com/") ||
+            normalized.contains("abyss.to/")
     }
 
 }
