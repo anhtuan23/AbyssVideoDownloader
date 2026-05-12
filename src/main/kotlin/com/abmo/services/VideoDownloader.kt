@@ -238,6 +238,7 @@ class VideoDownloader: KoinComponent {
     }
 
     private fun generateRanges(size: Long, step: Long = FRAGMENT_SIZE_IN_BYTES): List<LongRange> {
+        require(step > 0) { "Segment size must be greater than zero." }
         val ranges = mutableListOf<LongRange>()
 
         // if the size is less than or equal to step size return a single range

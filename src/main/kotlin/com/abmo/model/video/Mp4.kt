@@ -15,13 +15,18 @@ data class Mp4(
 
 
 fun Mp4.toSimpleVideo(resolution: String): SimpleVideo {
-    val source = sources?.find { it?.label == resolution }
+    val matchingSources = sources
+        ?.filter { it?.label == resolution }
+        .orEmpty()
+    val source = matchingSources.firstOrNull { it?.status != false && it?.partSize != 0 }
+        ?: matchingSources.firstOrNull { it?.status != false }
+        ?: matchingSources.firstOrNull()
     val firstData = firstDatas
         ?.find { it?.res_id == source?.res_id && it?.size == source?.size }
-        ?: firstDatas?.find { it?.res_id == source?.res_id && it?.codec == source?.codec }
-        ?: firstDatas?.find { it?.res_id == source?.res_id }
-        ?: firstDatas?.firstOrNull()
-    val preferredPath = source?.path
+        ?: firstDatas?.find { source?.size == null && it?.res_id == source?.res_id && it?.codec == source?.codec }
+        ?: firstDatas?.find { source?.size == null && it?.res_id == source?.res_id }
+        ?: firstDatas?.firstOrNull { source == null }
+    val preferredPath = source?.takeIf { (it.partSize ?: 0) > 0 }?.path
         ?: extractSegmentPath(source?.url)
 
     return SimpleVideo(
@@ -29,7 +34,8 @@ fun Mp4.toSimpleVideo(resolution: String): SimpleVideo {
         md5_id = md5_id,
         label = source?.label,
         size = source?.size,
-        partSize = source?.partSize?.toLong() ?: firstData?.partSize?.toLong(),
+        partSize = source?.partSize?.takeIf { it > 0 }?.toLong()
+            ?: firstData?.partSize?.takeIf { source?.partSize == null && it > 0 }?.toLong(),
         url = buildSegmentUrl(
             sourceUrl = source?.url,
             firstDataUrl = firstData?.url,

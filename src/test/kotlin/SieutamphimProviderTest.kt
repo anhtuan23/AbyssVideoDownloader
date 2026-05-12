@@ -197,4 +197,47 @@ class SieutamphimProviderTest {
         assertEquals("https://8oekkfci14.sssrr.org", simpleVideo.url)
         assertEquals(null, simpleVideo.path)
     }
+
+    @Test
+    fun `prefer alternate matching source over zero part size source`() {
+        val metadata = Mp4(
+            domains = listOf(
+                "valid-sub.sssrr.org"
+            ),
+            firstDatas = listOf(
+                FirstData(
+                    partSize = 16777216,
+                    res_id = 4,
+                    size = 334150344L,
+                    url = "vdqv2f3va0.sssrr.org/0/9/b/file.334150344.4.fd"
+                )
+            ),
+            sources = listOf(
+                Source(
+                    label = "720p",
+                    partSize = 0,
+                    path = "0/9/b/ee19d8d335f3b211a4084dbfd25c2.334150344.4",
+                    size = 334150344L,
+                    res_id = 4,
+                    url = "vdqv2f3va0.sssrr.org"
+                ),
+                Source(
+                    label = "720p",
+                    partSize = null,
+                    size = 313564130L,
+                    res_id = 4,
+                    sub = "valid-sub"
+                )
+            ),
+            slug = "slug",
+            md5_id = 27452164
+        )
+
+        val simpleVideo = metadata.toSimpleVideo("720p")
+
+        assertEquals(null, simpleVideo.partSize)
+        assertEquals(null, simpleVideo.path)
+        assertEquals(313564130L, simpleVideo.size)
+        assertEquals("https://valid-sub.sssrr.org", simpleVideo.url)
+    }
 }
