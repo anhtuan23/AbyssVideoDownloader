@@ -34,6 +34,12 @@ class VideoDownloader: KoinComponent {
         private const val FRAGMENT_SIZE_IN_BYTES = 2097152L
     }
 
+    private data class SegmentRequest(
+        val url: String,
+        val range: LongRange? = null,
+        val length: Long
+    )
+
     /**
      * Downloads video segments in parallel and merges them into a single MP4 file.
      * This function uses coroutines for concurrent downloading with a limit on the number of concurrent downloads.
@@ -44,25 +50,29 @@ class VideoDownloader: KoinComponent {
      */
     suspend fun downloadSegmentsInParallel(config: Config, videoMetadata: Mp4?) {
         val simpleVideo = videoMetadata?.toSimpleVideo(config.resolution)
-        val segmentBaseUrl = simpleVideo?.url
-            ?: throw IllegalStateException("No valid segment base URL found for resolution ${config.resolution}.")
+            ?: throw IllegalStateException("No valid source metadata found for resolution ${config.resolution}.")
+        val segmentBaseUrl = simpleVideo.url
         Logger.debug(
-            "Resolved source metadata: baseUrl=$segmentBaseUrl, path=${simpleVideo.path}, " +
+            "Resolved source metadata: baseUrl=$segmentBaseUrl, directUrl=${simpleVideo.directUrl}, path=${simpleVideo.path}, " +
                 "resId=${simpleVideo.resId}, size=${simpleVideo.size}, partSize=${simpleVideo.partSize}, md5=${simpleVideo.md5_id}"
         )
-        val segmentTokens = generateSegmentTokens(simpleVideo)
+        val segmentRequests = generateSegmentRequests(simpleVideo)
+        if (segmentRequests.isEmpty()) {
+            throw IllegalStateException("No valid segment source found for resolution ${config.resolution}.")
+        }
 
-        val tempDir = initializeDownloadTempDir(config, simpleVideo, segmentTokens.size)
+        val expectedSegmentSize = segmentRequests.values.firstOrNull()?.length ?: FRAGMENT_SIZE_IN_BYTES
+        val tempDir = initializeDownloadTempDir(config, simpleVideo, segmentRequests.size, expectedSegmentSize)
 
-        val segmentsToDownload = segmentTokens.filter { (index, _) -> index in tempDir.second }.ifEmpty {
-            segmentTokens
+        val segmentsToDownload = segmentRequests.filter { (index, _) -> index in tempDir.second }.ifEmpty {
+            segmentRequests
         }
 
         // reference: https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-core/kotlinx.coroutines.sync/-semaphore/
         // used to limit the number of concurrent coroutines executing the download tasks.
         val semaphore = Semaphore(config.connections)
         val totalSegments = segmentsToDownload.size
-        val mediaSize = simpleVideo.size ?: (segmentsToDownload.size * (simpleVideo.partSize ?: FRAGMENT_SIZE_IN_BYTES))
+        val mediaSize = simpleVideo.size ?: (segmentsToDownload.size * expectedSegmentSize)
         val downloadedSegments = AtomicInteger(0)
         val totalBytesDownloaded = AtomicLong(0L)
 
@@ -70,11 +80,11 @@ class VideoDownloader: KoinComponent {
 
         coroutineScope {
             val downloadJobs = segmentsToDownload.entries.mapIndexed { _, segmentToken ->
-                val segmentUrl = "$segmentBaseUrl/sora/${simpleVideo.size}/${segmentToken.value}"
                 async(Dispatchers.IO) {
                     val index = segmentToken.key
+                    val request = segmentToken.value
                     semaphore.withPermit {
-                        requestSegment(segmentUrl, segmentToken.value, index).collect { chunk ->
+                        requestSegment(request.url, index, request.range).collect { chunk ->
                             File(tempDir.first, "segment_$index").appendBytes(chunk)
                             totalBytesDownloaded.addAndGet(chunk.size.toLong())
                         }
@@ -191,7 +201,8 @@ class VideoDownloader: KoinComponent {
     private fun initializeDownloadTempDir(
         config: Config,
         simpleVideo: SimpleVideo?,
-        totalSegments: Int
+        totalSegments: Int,
+        expectedSegmentSize: Long
     ): Pair<File, List<Int>> {
         val tempFolderName = "temp_${simpleVideo?.slug}_${simpleVideo?.label}"
         // no need to check if path exists before creating temp folder we already did that in Main.kt
@@ -200,7 +211,6 @@ class VideoDownloader: KoinComponent {
         if (tempFolder.exists() && tempFolder.isDirectory) {
             Logger.info("Resuming download from temporary folder: $tempFolderName. Continuing from previously downloaded segments.")
             println("\n")
-            val expectedSegmentSize = simpleVideo?.partSize ?: FRAGMENT_SIZE_IN_BYTES
             val existingSegments = tempFolder.listFiles { file ->
                 val segmentIndex = file.name.removePrefix("segment_").toIntOrNull()
                 val expectedSize = if (
@@ -258,24 +268,41 @@ class VideoDownloader: KoinComponent {
     }
 
 
-    private fun generateSegmentTokens(simpleVideo: SimpleVideo?): Map<Int, String> {
-        Logger.debug("Generating segment request tokens.")
-        val fragmentList = mutableMapOf<Int, String>()
-        val encryptionKey = cryptoHelper.getKey(simpleVideo?.size)
-        if (simpleVideo?.size != null) {
-            val fragmentSize = simpleVideo.partSize ?: FRAGMENT_SIZE_IN_BYTES
-            val ranges = generateRanges(simpleVideo.size, fragmentSize)
-            val tokenPathPrefix = simpleVideo.path?.takeIf { it.isNotBlank() }
-                ?: "/mp4/${simpleVideo.md5_id}/${simpleVideo.resId}/${simpleVideo.size}"
-            ranges.forEachIndexed { index, _ ->
-                val path = "$tokenPathPrefix/$fragmentSize/$index"
-                val encryptedBody = cryptoHelper.encryptAESCTR(path, encryptionKey)
-                fragmentList[index] = doubleEncodeToBase64(encryptedBody)
+    private fun generateSegmentRequests(simpleVideo: SimpleVideo?): Map<Int, SegmentRequest> {
+        Logger.debug("Generating segment requests.")
+        val fragmentList = mutableMapOf<Int, SegmentRequest>()
+        if (simpleVideo?.size == null) return emptyMap()
+
+        simpleVideo.directUrl?.takeIf { it.isNotBlank() }?.let { directUrl ->
+            val ranges = generateRanges(simpleVideo.size)
+            ranges.forEachIndexed { index, range ->
+                fragmentList[index] = SegmentRequest(
+                    url = directUrl,
+                    range = range,
+                    length = range.last - range.first + 1
+                )
             }
-            Logger.debug("${fragmentList.size} request token generated")
+            Logger.debug("${fragmentList.size} direct segment requests generated")
             return fragmentList
         }
-        return emptyMap()
+
+        val segmentBaseUrl = simpleVideo.url ?: return emptyMap()
+        val encryptionKey = cryptoHelper.getKey(simpleVideo?.size)
+        val fragmentSize = simpleVideo.partSize ?: FRAGMENT_SIZE_IN_BYTES
+        val ranges = generateRanges(simpleVideo.size, fragmentSize)
+        val tokenPathPrefix = simpleVideo.path?.takeIf { it.isNotBlank() }
+            ?: "/mp4/${simpleVideo.md5_id}/${simpleVideo.resId}/${simpleVideo.size}"
+        ranges.forEachIndexed { index, range ->
+            val path = "$tokenPathPrefix/$fragmentSize/$index"
+            val encryptedBody = cryptoHelper.encryptAESCTR(path, encryptionKey)
+            val token = doubleEncodeToBase64(encryptedBody)
+            fragmentList[index] = SegmentRequest(
+                url = "$segmentBaseUrl/sora/${simpleVideo.size}/$token",
+                length = range.last - range.first + 1
+            )
+        }
+        Logger.debug("${fragmentList.size} tokenized segment requests generated")
+        return fragmentList
     }
 
     private fun doubleEncodeToBase64(input: String): String {
@@ -289,10 +316,15 @@ class VideoDownloader: KoinComponent {
     }
 
 
-    private suspend fun requestSegment(url: String, token: String, index: Int? = null): Flow<ByteArray> = flow {
-        val response = Unirest.get(url)
+    private suspend fun requestSegment(url: String, index: Int? = null, range: LongRange? = null): Flow<ByteArray> = flow {
+        val request = Unirest.get(url)
             .header("Referer", "https://abysscdn.com/")
-            .asBinary()
+
+        if (range != null) {
+            request.header("Range", "bytes=${range.first}-${range.last}")
+        }
+
+        val response = request.asBinary()
 
         val rawBody = response.rawBody
         val responseCode = response.status

@@ -43,9 +43,51 @@ fun Mp4.toSimpleVideo(resolution: String): SimpleVideo {
             subdomain = source?.sub,
             size = source?.size
         ),
+        directUrl = buildDirectSourceUrl(source),
         path = preferredPath,
         resId = source?.res_id
     )
+}
+
+fun Mp4.preferredResolutionLabel(resolution: String): String? {
+    val playableSources = sources
+        ?.filter { it?.status != false && it?.size != null }
+        .orEmpty()
+
+    val supportedSources = playableSources
+        .filterNot { source ->
+            source.hasServiceWorkerFirstDataOnly(firstDatas)
+        }
+        .ifEmpty { playableSources }
+
+    val selectedSource = when (resolution) {
+        "h" -> supportedSources.maxByOrNull { it?.size ?: 0L }
+        "l" -> supportedSources.minByOrNull { it?.size ?: Long.MAX_VALUE }
+        "m" -> supportedSources
+            .sortedBy { it?.size ?: Long.MAX_VALUE }
+            .let { sorted -> sorted.getOrNull((sorted.size - 1) / 2) }
+        else -> supportedSources.maxByOrNull { it?.size ?: 0L }
+    }
+
+    return selectedSource?.label
+}
+
+private fun Source?.hasServiceWorkerFirstDataOnly(firstDatas: List<FirstData?>?): Boolean {
+    if (this == null || !path.isNullOrBlank() || !url.isNullOrBlank()) return false
+
+    return firstDatas?.any { firstData ->
+        firstData?.res_id == res_id &&
+            firstData?.size == size &&
+            firstData?.codec == codec &&
+            (firstData?.partSize ?: 0) > 0
+    } == true
+}
+
+private fun buildDirectSourceUrl(source: Source?): String? {
+    val path = source?.path?.takeIf { it.isNotBlank() } ?: return null
+    val sourceUrl = source.url?.takeIf { it.isNotBlank() } ?: return null
+    val baseUrl = normalizeSegmentBaseUrl(sourceUrl)
+    return "${baseUrl.trimEnd('/')}/${path.trimStart('/')}"
 }
 
 

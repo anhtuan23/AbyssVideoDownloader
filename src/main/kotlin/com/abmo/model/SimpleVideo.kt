@@ -8,6 +8,7 @@ data class SimpleVideo(
     val partSize: Long? = null,
     var range: Range? = null,
     val url: String? = null,
+    val directUrl: String? = null,
     val path: String? = null,
     val resId: Int? = null
 )

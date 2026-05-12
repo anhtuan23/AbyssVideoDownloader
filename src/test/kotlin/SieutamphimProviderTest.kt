@@ -5,6 +5,7 @@ import com.abmo.util.toJsoupDocument
 import com.abmo.model.video.Mp4
 import com.abmo.model.video.FirstData
 import com.abmo.model.video.Source
+import com.abmo.model.video.preferredResolutionLabel
 import com.abmo.model.video.toSimpleVideo
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -239,5 +240,69 @@ class SieutamphimProviderTest {
         assertEquals(null, simpleVideo.path)
         assertEquals(313564130L, simpleVideo.size)
         assertEquals("https://valid-sub.sssrr.org", simpleVideo.url)
+    }
+
+    @Test
+    fun `build direct media url for source path and host`() {
+        val metadata = Mp4(
+            domains = listOf("fallback.sssrr.org"),
+            sources = listOf(
+                Source(
+                    label = "360p",
+                    partSize = 0,
+                    path = "7/f/e/file.125842223.2",
+                    size = 125842223L,
+                    res_id = 2,
+                    url = "https://zgok4xuuu17.sssrr.org"
+                )
+            ),
+            slug = "slug",
+            md5_id = 30246494
+        )
+
+        val simpleVideo = metadata.toSimpleVideo("360p")
+
+        assertEquals("https://zgok4xuuu17.sssrr.org/7/f/e/file.125842223.2", simpleVideo.directUrl)
+    }
+
+    @Test
+    fun `prefer supported direct source over first data only source for high resolution`() {
+        val metadata = Mp4(
+            domains = listOf(
+                "dxqmwq9y0.sssrr.org",
+                "tk8b7ce9830.sssrr.org"
+            ),
+            firstDatas = listOf(
+                FirstData(
+                    codec = "h264",
+                    partSize = 10485760,
+                    res_id = 4,
+                    size = 571851986L,
+                    url = "azh4dkvlgz0.sssrr.org/7/e/d/file.571851986.4.fd"
+                )
+            ),
+            sources = listOf(
+                Source(
+                    codec = "h264",
+                    label = "360p",
+                    partSize = 0,
+                    path = "7/f/e/file.125842223.2",
+                    size = 125842223L,
+                    res_id = 2,
+                    url = "zgok4xuuu17.sssrr.org"
+                ),
+                Source(
+                    codec = "h264",
+                    label = "720p",
+                    size = 571851986L,
+                    res_id = 4,
+                    sub = "tk8b7ce9830"
+                )
+            ),
+            slug = "slug",
+            md5_id = 30246494
+        )
+
+        assertEquals("360p", metadata.preferredResolutionLabel("h"))
     }
 }

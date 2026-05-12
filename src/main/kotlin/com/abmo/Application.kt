@@ -4,6 +4,7 @@ import com.abmo.common.Constants
 import com.abmo.common.Constants.ABYSS_BASE_URL
 import com.abmo.common.Logger
 import com.abmo.model.Config
+import com.abmo.model.video.preferredResolutionLabel
 import com.abmo.services.ProviderDispatcher
 import com.abmo.services.VideoDownloader
 import com.abmo.util.*
@@ -73,13 +74,7 @@ class Application(private val args: Array<String>) : KoinComponent {
                     return@forEachIndexed
                 }
 
-                val mappedResolution = when(resolution) {
-                    "h" -> videoSources.maxBy { it?.size!! }?.label
-                    "l" -> videoSources.minBy { it?.size!! }?.label
-                    "m" -> videoSources.sortedBy { it?.size }.let { sorted ->
-                        sorted.getOrNull((sorted.size - 1) / 2) }?.label
-                    else -> videoSources.maxBy { it?.size!! }?.label
-                }
+                val mappedResolution = videoMetadata.preferredResolutionLabel(resolution)
 
                 if (mappedResolution == null) return@forEachIndexed
 
