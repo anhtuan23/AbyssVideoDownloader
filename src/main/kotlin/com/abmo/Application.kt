@@ -63,6 +63,14 @@ class Application(private val args: Array<String>) : KoinComponent {
             }
 
             downloadTargets.forEachIndexed { index, target ->
+                if (multipleTargets) {
+                    val existingEpisodeFile = findExistingEpisodeFile(outputDirectory, target.fileStem ?: target.videoId)
+                    if (existingEpisodeFile != null) {
+                        Logger.info("Skipping existing episode: ${existingEpisodeFile.absolutePath}")
+                        return@forEachIndexed
+                    }
+                }
+
                 val videoID = target.videoId
                 val url = "$ABYSS_BASE_URL/?v=$videoID"
                 val videoMetadata = videoDownloader.getVideoMetaData(url, headers ?: defaultHeader)
@@ -121,6 +129,17 @@ class Application(private val args: Array<String>) : KoinComponent {
                 println("-----------------------------------------${downloadTargets.last().videoId}--------------------------------------------------------")
             }
         }
+    }
+
+    private fun findExistingEpisodeFile(directory: File?, fileStem: String): File? {
+        if (directory == null || !directory.isDirectory) return null
+
+        val episodeFilePrefix = "$fileStem ["
+        return directory.listFiles { file ->
+            file.isFile &&
+                file.extension.equals("mp4", ignoreCase = true) &&
+                file.name.startsWith(episodeFilePrefix)
+        }?.maxByOrNull { it.lastModified() }
     }
 
 }
