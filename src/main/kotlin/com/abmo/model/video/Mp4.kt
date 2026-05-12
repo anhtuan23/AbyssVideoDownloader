@@ -54,11 +54,9 @@ fun Mp4.preferredResolutionLabel(resolution: String): String? {
         ?.filter { it?.status != false && it?.size != null }
         .orEmpty()
 
-    val supportedSources = playableSources
-        .filterNot { source ->
-            source.hasServiceWorkerFirstDataOnly(firstDatas)
-        }
-        .ifEmpty { playableSources }
+    val supportedSources = playableSources.filterNot { source ->
+        source.hasServiceWorkerFirstDataOnly(firstDatas)
+    }
 
     val selectedSource = when (resolution) {
         "h" -> supportedSources.maxByOrNull { it?.size ?: 0L }
@@ -78,9 +76,15 @@ private fun Source?.hasServiceWorkerFirstDataOnly(firstDatas: List<FirstData?>?)
     return firstDatas?.any { firstData ->
         firstData?.res_id == res_id &&
             firstData?.size == size &&
-            firstData?.codec == codec &&
+            firstData.matchesCodec(codec) &&
             (firstData?.partSize ?: 0) > 0
     } == true
+}
+
+private fun FirstData?.matchesCodec(sourceCodec: String?): Boolean {
+    return this?.codec.isNullOrBlank() ||
+        sourceCodec.isNullOrBlank() ||
+        this?.codec == sourceCodec
 }
 
 private fun buildDirectSourceUrl(source: Source?): String? {
@@ -126,17 +130,20 @@ private fun buildSegmentUrl(
 }
 
 private fun normalizeSegmentBaseUrl(rawUrl: String): String {
-    val normalized = if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
-        rawUrl
-    } else {
-        "https://$rawUrl"
-    }
-
+    val normalized = normalizeFullUrl(rawUrl)
     val uri = URI(normalized)
     val scheme = uri.scheme ?: "https"
     val authority = uri.authority ?: return normalized
 
     return "$scheme://$authority"
+}
+
+private fun normalizeFullUrl(rawUrl: String): String {
+    return if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+        rawUrl
+    } else {
+        "https://$rawUrl"
+    }
 }
 
 private fun normalizeDomainBaseUrl(domain: String, subdomain: String?): String {

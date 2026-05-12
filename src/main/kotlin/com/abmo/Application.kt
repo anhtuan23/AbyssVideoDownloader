@@ -84,7 +84,10 @@ class Application(private val args: Array<String>) : KoinComponent {
 
                 val mappedResolution = videoMetadata.preferredResolutionLabel(resolution)
 
-                if (mappedResolution == null) return@forEachIndexed
+                if (mappedResolution == null) {
+                    Logger.warn("Skipping ${target.fileStem ?: videoID}: no CLI-downloadable MP4 source found.")
+                    return@forEachIndexed
+                }
 
                 val outputFile = when {
                     multipleTargets -> {

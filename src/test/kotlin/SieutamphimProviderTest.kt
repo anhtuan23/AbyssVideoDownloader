@@ -9,6 +9,7 @@ import com.abmo.model.video.preferredResolutionLabel
 import com.abmo.model.video.toSimpleVideo
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -304,5 +305,89 @@ class SieutamphimProviderTest {
         )
 
         assertEquals("360p", metadata.preferredResolutionLabel("h"))
+    }
+
+    @Test
+    fun `treat first data without codec as matching source`() {
+        val metadata = Mp4(
+            domains = listOf("tk8b7ce9830.sssrr.org"),
+            firstDatas = listOf(
+                FirstData(
+                    codec = null,
+                    partSize = 10485760,
+                    res_id = 4,
+                    size = 571851986L,
+                    url = "azh4dkvlgz0.sssrr.org/7/e/d/file.571851986.4.fd"
+                )
+            ),
+            sources = listOf(
+                Source(
+                    codec = "h264",
+                    label = "360p",
+                    partSize = 0,
+                    path = "7/f/e/file.125842223.2",
+                    size = 125842223L,
+                    res_id = 2,
+                    url = "zgok4xuuu17.sssrr.org"
+                ),
+                Source(
+                    codec = "h264",
+                    label = "720p",
+                    size = 571851986L,
+                    res_id = 4,
+                    sub = "tk8b7ce9830"
+                )
+            ),
+            slug = "slug",
+            md5_id = 30246494
+        )
+
+        assertEquals("360p", metadata.preferredResolutionLabel("h"))
+    }
+
+    @Test
+    fun `return no preferred resolution when all sources are first data only`() {
+        val metadata = Mp4(
+            domains = listOf(
+                "j4vbathl34.sssrr.org",
+                "zo92nqf4y28.sssrr.org"
+            ),
+            firstDatas = listOf(
+                FirstData(
+                    codec = "h264",
+                    partSize = 4194304,
+                    res_id = 3,
+                    size = 170265264L,
+                    url = "3vzuayxd22.sssrr.org/4/e/8/file.170265264.3.fd"
+                ),
+                FirstData(
+                    codec = "h264",
+                    partSize = 10485760,
+                    res_id = 4,
+                    size = 562764242L,
+                    url = "azh4dkvlgz0.sssrr.org/8/c/6/file.562764242.4.fd"
+                )
+            ),
+            sources = listOf(
+                Source(
+                    codec = "h264",
+                    label = "480p",
+                    size = 170265264L,
+                    res_id = 3,
+                    sub = "j4vbathl34"
+                ),
+                Source(
+                    codec = "h264",
+                    label = "720p",
+                    size = 562764242L,
+                    res_id = 4,
+                    sub = "zo92nqf4y28"
+                )
+            ),
+            slug = "slug",
+            md5_id = 30262149
+        )
+
+        assertNull(metadata.preferredResolutionLabel("h"))
     }
 }
