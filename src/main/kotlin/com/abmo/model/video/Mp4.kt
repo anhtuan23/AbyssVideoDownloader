@@ -55,7 +55,7 @@ fun Mp4.preferredResolutionLabel(resolution: String): String? {
         .orEmpty()
 
     val supportedSources = playableSources.filterNot { source ->
-        source.hasServiceWorkerFirstDataOnly(firstDatas)
+        source.hasServiceWorkerFirstDataOnly(firstDatas, domains)
     }
 
     val selectedSource = when (resolution) {
@@ -70,8 +70,12 @@ fun Mp4.preferredResolutionLabel(resolution: String): String? {
     return selectedSource?.label
 }
 
-private fun Source?.hasServiceWorkerFirstDataOnly(firstDatas: List<FirstData?>?): Boolean {
+private fun Source?.hasServiceWorkerFirstDataOnly(
+    firstDatas: List<FirstData?>?,
+    domains: List<String?>?
+): Boolean {
     if (this == null || !path.isNullOrBlank() || !url.isNullOrBlank()) return false
+    if (!sub.isNullOrBlank() && domains?.any { it?.contains(sub) == true } == true) return false
 
     return firstDatas?.any { firstData ->
         firstData?.res_id == res_id &&

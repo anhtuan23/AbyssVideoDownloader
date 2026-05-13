@@ -267,7 +267,7 @@ class SieutamphimProviderTest {
     }
 
     @Test
-    fun `prefer supported direct source over first data only source for high resolution`() {
+    fun `include subdomain-resolvable source when selecting high resolution`() {
         val metadata = Mp4(
             domains = listOf(
                 "dxqmwq9y0.sssrr.org",
@@ -304,11 +304,11 @@ class SieutamphimProviderTest {
             md5_id = 30246494
         )
 
-        assertEquals("360p", metadata.preferredResolutionLabel("h"))
+        assertEquals("720p", metadata.preferredResolutionLabel("h"))
     }
 
     @Test
-    fun `treat first data without codec as matching source`() {
+    fun `include subdomain source even when first data has null codec`() {
         val metadata = Mp4(
             domains = listOf("tk8b7ce9830.sssrr.org"),
             firstDatas = listOf(
@@ -342,11 +342,11 @@ class SieutamphimProviderTest {
             md5_id = 30246494
         )
 
-        assertEquals("360p", metadata.preferredResolutionLabel("h"))
+        assertEquals("720p", metadata.preferredResolutionLabel("h"))
     }
 
     @Test
-    fun `return no preferred resolution when all sources are first data only`() {
+    fun `allow subdomain-resolvable sources even when all are first data backed`() {
         val metadata = Mp4(
             domains = listOf(
                 "j4vbathl34.sssrr.org",
@@ -382,6 +382,38 @@ class SieutamphimProviderTest {
                     size = 562764242L,
                     res_id = 4,
                     sub = "zo92nqf4y28"
+                )
+            ),
+            slug = "slug",
+            md5_id = 30262149
+        )
+
+        assertEquals("720p", metadata.preferredResolutionLabel("h"))
+    }
+
+    @Test
+    fun `reject first data only sources when subdomain is absent`() {
+        val metadata = Mp4(
+            domains = listOf(
+                "j4vbathl34.sssrr.org",
+                "zo92nqf4y28.sssrr.org"
+            ),
+            firstDatas = listOf(
+                FirstData(
+                    codec = "h264",
+                    partSize = 4194304,
+                    res_id = 3,
+                    size = 170265264L,
+                    url = "3vzuayxd22.sssrr.org/4/e/8/file.170265264.3.fd"
+                )
+            ),
+            sources = listOf(
+                Source(
+                    codec = "h264",
+                    label = "480p",
+                    size = 170265264L,
+                    res_id = 3,
+                    sub = null
                 )
             ),
             slug = "slug",
